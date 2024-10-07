@@ -13,11 +13,9 @@ author:         Author name here
 maintainer:     example@example.com
 copyright:      2024 Author name here
 license:        BSD-3-Clause
-license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     README.md
-    CHANGELOG.md
 
 source-repository head
   type: git
@@ -25,7 +23,13 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Api.API
+      Dal.DAO
+      Dal.Model
+      Dal.PgDAO
+      Dal.Queries
+      Model
+      Utils.Into
   other-modules:
       Paths_test_project
   autogen-modules:
@@ -34,7 +38,15 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , ghc-prim ==0.10.0
+    , hasql
+    , hasql-th
+    , servant-server
+    , text >=2.0.2 && <2.1
+    , warp
   default-language: Haskell2010
 
 executable test-project-exe
@@ -47,8 +59,16 @@ executable test-project-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , ghc-prim ==0.10.0
+    , hasql
+    , hasql-th
+    , servant-server
     , test-project
+    , text >=2.0.2 && <2.1
+    , warp
   default-language: Haskell2010
 
 test-suite test-project-test
@@ -62,6 +82,14 @@ test-suite test-project-test
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , ghc-prim ==0.10.0
+    , hasql
+    , hasql-th
+    , servant-server
     , test-project
+    , text >=2.0.2 && <2.1
+    , warp
   default-language: Haskell2010
