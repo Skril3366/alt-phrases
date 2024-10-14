@@ -6,7 +6,8 @@
 
 module Dal.PgDAO where
 
-import Dal.DAO
+import Config (PgConfig, pgDbname, pgHost, pgPassword, pgPort, pgUser)
+import Dal.DAO ( DAO(..) )
 import qualified Dal.Model as PgModel
 import qualified Dal.Queries as Queries
 import qualified Data.ByteString.Char8 as BS
@@ -14,8 +15,8 @@ import qualified Hasql.Connection as C
 import qualified Hasql.Session as S
 import Hasql.Statement (Statement)
 import qualified Model
-import Utils.Into
-import Data.List (intercalate)
+import Utils.Into ( Into(..) )
+
 
 instance Into (PgModel.ID a) (Model.ID b) where
   into (PgModel.ID i) = Model.ID i
@@ -30,27 +31,20 @@ instance Into PgModel.Phrase Model.Phrase where
   into (PgModel.Phrase phraseId text errors groupId authorId) =
     Model.Phrase (into phraseId) text (map into errors) (into groupId) (into authorId)
 
-data PgConnectionSettings = PgConnectionSettings
-  { host :: String
-  , port :: Int
-  , user :: String
-  , password :: String
-  , dbname :: String
-  }
-
-runSingleQuery :: PgConnectionSettings -> Statement a b -> a -> IO b
+runSingleQuery :: Config.PgConfig -> Statement a b -> a -> IO b
 runSingleQuery settings query arguments = C.acquire connectionString >>= connect >>= runQuery
  where
   connectionString =
-    BS.pack $ intercalate " " $
-      map
-        (\(k, v) -> k ++ "=" ++ v settings)
-        [ ("host", host)
-        , ("port", show . port)
-        , ("user", user)
-        , ("password", password)
-        , ("dbname", dbname)
-        ]
+    BS.pack $
+      unwords $
+        map
+          (\(k, v) -> k ++ "=" ++ v settings)
+          [ ("host", pgHost)
+          , ("port", show . pgPort)
+          , ("user", pgUser)
+          , ("password", pgPassword)
+          , ("dbname", pgDbname)
+          ]
   connect connResult = case connResult of
     Left err -> fail $ "Connection error: " ++ show err
     Right conn -> return conn
@@ -60,9 +54,9 @@ runSingleQuery settings query arguments = C.acquire connectionString >>= connect
         Left err -> fail $ "Query error: " ++ show err
         Right results -> return results
 
-query :: (Into a1 b) => Statement a2 [a1] -> a2 -> PgConnectionSettings -> IO [b]
+query :: (Into a1 b) => Statement a2 [a1] -> a2 -> Config.PgConfig -> IO [b]
 query q args settings = runSingleQuery settings q args >>= return . map into
 
-instance DAO PgConnectionSettings where
+instance DAO Config.PgConfig where
   getAllUsers = query Queries.selectUsers ()
   getAllPhrases = query Queries.selectPhrases ()

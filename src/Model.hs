@@ -1,12 +1,16 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Model where
 
-import Data.Aeson (FromJSON)
+import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 
 newtype ID a = ID {unID :: Int}
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Show, Ord, Generic)
+
+instance FromJSON (ID a)
+instance ToJSON (ID a)
 
 -- Users
 data UserId
@@ -14,10 +18,11 @@ data UserId
 type UserID = ID UserId
 
 data User = User
-  { userId :: UserID
+  { id :: UserID
   , username :: String
   , passwordHash :: String
-  } deriving (Show)
+  }
+  deriving (Show)
 
 -- Phrases
 
@@ -26,12 +31,13 @@ data PhraseId
 type PhraseID = ID PhraseId
 
 data Phrase = Phrase
-  { phraseId :: PhraseID
+  { id :: PhraseID
   , text :: String
   , errors :: [Error]
   , groupId :: PhraseGroupID
   , authorId :: UserID
-  } deriving (Show)
+  }
+  deriving (Show)
 
 data Error = Error
   { word :: String
@@ -48,7 +54,8 @@ data PhraseGroupId
 type PhraseGroupID = ID PhraseGroupId
 
 data PhraseGroup = PhraseGroup
-  { phraseGroupId :: PhraseGroupID
+  { id :: PhraseGroupID
   , groupName :: String
-  , groupOwner :: Int
-  } deriving (Show)
+  , groupOwner :: UserID
+  }
+  deriving (Show)

@@ -23,7 +23,9 @@ source-repository head
 
 library
   exposed-modules:
-      Api.API
+      Api.AppServer
+      Api.Server
+      Config
       Dal.DAO
       Dal.Model
       Dal.PgDAO

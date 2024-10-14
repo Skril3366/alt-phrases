@@ -5,18 +5,28 @@
 
 module Main (main) where
 
-import Dal.DAO
-import Dal.PgDAO
+import Dal.DAO ()
+import Dal.PgDAO ()
+import Config
+import Api.Server
+import Api.AppServer ()
 
-connection :: PgConnectionSettings
-connection =
-  PgConnectionSettings
-    { host = "localhost"
-    , port = 5432
-    , user = "user"
-    , password = "password"
-    , dbname = "user"
-    }
+config :: Config
+config = Config {
+  serverConfig = ServerConfig { serverPort = 8080 },
+  pgConfig = PgConfig {
+    pgHost = "localhost",
+    pgPort = 5432,
+    pgUser = "user",
+    pgPassword = "password",
+    pgDbname = "user"
+}}
+
+
+-- main :: IO ()
+-- main = getAllPhrases connection >>= return . show >>= putStrLn
 
 main :: IO ()
-main = getAllPhrases connection >>= return . show >>= putStrLn
+main = do
+  putStrLn "Starting server..."
+  runServer (serverConfig config)
