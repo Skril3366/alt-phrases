@@ -19,7 +19,7 @@ extra-source-files:
 description: Please see the README on GitHub at <https://github.com/githubuser/test-project#readme>
 
 dependencies:
-  - base >= 4.7 && < 5
+  - rerebase
   - text ^>= 2.0.2
   - ghc-prim == 0.10.0
   - servant-server
@@ -27,7 +27,6 @@ dependencies:
   - warp
   - hasql
   - hasql-th
-  - bytestring
 
 ghc-options:
   - -Wall

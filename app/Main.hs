@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 {-# HLINT ignore "Use <&>" #-}
 
@@ -9,7 +10,8 @@ import Dal.DAO ()
 import Dal.PgDAO ()
 import Config
 import Api.Server
-import Api.AppServer ()
+import Api.AppServer (ApiEnv(..))
+import Utils.Into
 
 config :: Config
 config = Config {
@@ -22,6 +24,12 @@ config = Config {
     pgDbname = "user"
 }}
 
+instance Into Config ApiEnv where
+  into config = ApiEnv {
+    server = serverConfig config,
+    dao = pgConfig config
+  }
+
 
 -- main :: IO ()
 -- main = getAllPhrases connection >>= return . show >>= putStrLn
@@ -29,4 +37,4 @@ config = Config {
 main :: IO ()
 main = do
   putStrLn "Starting server..."
-  runServer (serverConfig config)
+  runServer (into config :: ApiEnv)

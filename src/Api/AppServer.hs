@@ -1,9 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -13,13 +15,12 @@
 
 module Api.AppServer where
 
+import Prelude hiding (Handler)
+
 import qualified Api.Server
-import Config (PgConfig (..), ServerConfig (serverPort))
-import Control.Monad.IO.Class (MonadIO (liftIO))
+import Config (ServerConfig (serverPort))
 import Dal.DAO
-import Dal.PgDAO
 import Data.Aeson (FromJSON, ToJSON)
-import GHC.Generics (Generic)
 import Model
 import Network.Wai.Handler.Warp (run)
 import Servant
@@ -54,6 +55,13 @@ import Utils.Into (Into (into))
 type BaseApiV1 b = "api" :> "v1" :> b
 type BaseAuthenticatedApiV1 b = BasicAuth "alt-phrases" User :> BaseApiV1 b
 
+data ApiEnv = forall dao. (DAO dao) => ApiEnv
+  { dao :: dao
+  , server :: ServerConfig
+  }
+
+type ApiM = ReaderT ApiEnv Handler
+
 --------------------------------------------------------------------------------
 --                                Auth
 --------------------------------------------------------------------------------
@@ -82,45 +90,31 @@ data RegisterDTO = RegisterDTO
 
 instance FromJSON RegisterDTO
 
-registerUser :: RegisterDTO -> Handler String
+registerUser :: RegisterDTO -> ApiM String
 registerUser _ = return "why are you running???" -- TODO: implement proper registration
 
 --------------------------------------------------------------------------------
 --                               Users
 --------------------------------------------------------------------------------
 
--- GET /api/v1/users
--- TODO: return all users
-
 type UsersEndpoint = BaseAuthenticatedApiV1 ("users" :> Get '[JSON] [UserDTO])
 
 data UserDTO = UserDTO
-  { userId :: UserID
+  { userId :: Int
   , login :: String
   }
   deriving (Show, Eq, Generic)
 
 instance Into User UserDTO where
-  into (User userId login _) = UserDTO userId login
+  into (User userId login _) = UserDTO (unID userId) login
 
 instance ToJSON UserDTO
 
-pgConfig :: PgConfig
-pgConfig =
-  PgConfig
-    { pgHost = "localhost"
-    , pgPort = 5432
-    , pgUser = "user"
-    , pgPassword = "password"
-    , pgDbname = "user"
-    }
-
-users :: User -> Handler [UserDTO]
+users :: User -> ApiM [UserDTO]
 users _ = do
-  users <- liftIO (getAllUsers pgConfig)
+  ApiEnv dao _ <- ask
+  users <- liftIO $ getAllUsers dao
   return $ map (into :: User -> UserDTO) users
-
--- users _ = liftIO (getAllUsers (pgConfig :: PgConfig)) >>= return . map into
 
 --------------------------------------------------------------------------------
 --                                Phrases
@@ -131,6 +125,36 @@ users _ = do
 -- Filter:
 --  - Approved/not approved
 --  - Authored by me (maybe should make it generic to specify any author)
+
+type PhrasesEndpoint = BaseAuthenticatedApiV1 ("phrases" :> QueryParam "filter" String :> Get '[JSON] [PhraseDTO])
+
+data PhraseDTO = PhraseDTO
+  { id :: Int
+  , text :: String
+  , errors :: [ErrorDTO]
+  , groupId :: GroupDTO
+  , authorId :: AuthorDTO
+  }
+  deriving (Show, Eq, Generic)
+
+data ErrorDTO = ErrorDTO
+  { word :: String
+  , corrected :: String
+  }
+  deriving (Show, Eq, Generic)
+
+data GroupDTO = GroupDTO
+  { id :: Int
+  , groupName :: String
+  , groupOwner :: AuthorDTO
+  }
+  deriving (Show, Eq, Generic)
+
+data AuthorDTO = AuthorDTO
+  { id :: Int
+  , login :: String
+  }
+  deriving (Show, Eq, Generic)
 
 -- POST /api/v1/phrase
 -- TODO: submit new phrase for approval
@@ -164,20 +188,21 @@ type AppAPI =
 -- :<|> Phrases
 -- :<|> PhraseGroups
 
-appLogic :: Server AppAPI
-appLogic = registerUser :<|> users
+appLogicT :: ServerT AppAPI ApiM
+appLogicT = registerUser :<|> users
 
-appServer :: Application
-appServer = serveWithContext (Proxy @AppAPI) basicAuthServerContext appLogic
+readerToHandler :: ApiEnv -> ApiM a -> Handler a
+readerToHandler env r = runReaderT r env
+
+appLogic :: ApiEnv -> (RegisterDTO -> Handler [Char]) :<|> (User -> Handler [UserDTO])
+appLogic env = hoistServerWithContext (Proxy @AppAPI) (Proxy @'[BasicAuthCheck User]) (readerToHandler env) appLogicT
+
+appServer :: ApiEnv -> Application
+appServer env = serveWithContext (Proxy @AppAPI) basicAuthServerContext (appLogic env)
 
 --------------------------------------------------------------------------------
 --                                Server
 --------------------------------------------------------------------------------
 
--- data ServerEnv = ServerEnv
---   { config :: ServerConfig
---   -- , pgConfig :: PgConfig
---   }
-
-instance Api.Server.Server ServerConfig where
-  runServer conf = run (serverPort conf) appServer
+instance Api.Server.Server ApiEnv where
+  runServer conf = run (serverPort (server conf)) (appServer conf)

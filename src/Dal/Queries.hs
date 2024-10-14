@@ -1,9 +1,8 @@
 module Dal.Queries where
 
 import qualified Dal.Model as Model
-import Data.Aeson
+import Data.Aeson as Aeson
 import Data.Aeson.Types (parse)
-import qualified Data.Aeson.Types as Aeson
 import qualified Data.ByteString.Char8 as BS
 import qualified Hasql.Decoders as Decoders
 import qualified Hasql.Encoders as Encoders
@@ -51,7 +50,7 @@ phraseDecoder = fmap (map makePhrase) statement
   makePhrase (i, t, e, g, a) = Model.Phrase i t pe g a
    where
     pe = case decodeError e of
-      Success s -> s
+      Aeson.Success s -> s
       Aeson.Error er -> [Model.Error (show er) "t"]
 
 -- Queries
