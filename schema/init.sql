@@ -1,6 +1,6 @@
 create table if not exists users (
     id serial not null primary key,
-    username varchar(255) not null,
+    username varchar(255) not null unique,
     password_hash varchar(255) not null
 );
 

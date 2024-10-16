@@ -19,8 +19,8 @@ type UserID = ID UserId
 
 data User = User
   { id :: UserID
-  , username :: String
-  , passwordHash :: String
+  , username :: Text
+  , passwordHash :: Text
   }
   deriving (Show)
 
@@ -32,7 +32,7 @@ type PhraseID = ID PhraseId
 
 data Phrase = Phrase
   { id :: PhraseID
-  , text :: String
+  , text :: Text
   , errors :: [Error]
   , groupId :: PhraseGroupID
   , authorId :: UserID
@@ -40,12 +40,14 @@ data Phrase = Phrase
   deriving (Show)
 
 data Error = Error
-  { word :: String
-  , corrected :: String
+  { word :: Text
+  , corrected :: Text
   }
   deriving (Generic, Show)
 
 instance FromJSON Error
+
+instance ToJSON Error
 
 -- Phrase Groups
 
@@ -55,7 +57,7 @@ type PhraseGroupID = ID PhraseGroupId
 
 data PhraseGroup = PhraseGroup
   { id :: PhraseGroupID
-  , groupName :: String
+  , groupName :: Text
   , groupOwner :: UserID
   }
   deriving (Show)

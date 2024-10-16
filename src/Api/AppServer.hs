@@ -4,7 +4,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -12,15 +11,18 @@
 {-# HLINT ignore "Use <&>" #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
-module Api.AppServer where
+module Api.AppServer (ApiEnv(..)) where
 
 import Prelude hiding (Handler)
 
 import qualified Api.Server
 import Config (ServerConfig (serverPort))
 import Dal.DAO
+import Dal.Model (PhraseToInsert (..), UserToInsert (..))
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Text (decodeUtf8)
 import Model
 import Network.Wai.Handler.Warp (run)
 import Servant
@@ -66,55 +68,69 @@ type ApiM = ReaderT ApiEnv Handler
 --                                Auth
 --------------------------------------------------------------------------------
 
--- TODO: Use bcrypt function for storing passwords
-authCheck :: BasicAuthCheck User
-authCheck =
-  let check (BasicAuthData u p) =
-        if u == "aboba" && p == "1"
-          then return (Authorized (User (ID 1) "servant" "1"))
+authCheck :: ApiEnv -> BasicAuthCheck User
+authCheck env = BasicAuthCheck check
+ where
+  check (BasicAuthData username password) = do
+    runReaderT (verifyUserCredentials (decodeUtf8 username) (decodeUtf8 password)) env
+  verifyUserCredentials username password = do
+    ApiEnv dao _ <- ask
+    eitherUser <- liftIO $ runExceptT $ findUserByUsername username dao
+    case eitherUser of
+      Left _ -> return Unauthorized
+      Right Nothing -> return Unauthorized
+      Right (Just user@(User _ _ dbPassword)) ->
+        if password == dbPassword
+          then return (Authorized user)
           else return Unauthorized
-   in BasicAuthCheck check
 
-basicAuthServerContext :: Context (BasicAuthCheck User ': '[])
-basicAuthServerContext = authCheck :. EmptyContext
+basicAuthServerContext :: ApiEnv -> Context (BasicAuthCheck User ': '[])
+basicAuthServerContext env = authCheck env :. EmptyContext
 
 -- POST /api/v1/auth/register
--- TODO: register new user
-type RegisterEndpoint = BaseApiV1 ("auth" :> "register" :> ReqBody '[JSON] RegisterDTO :> Post '[JSON] String)
+type RegisterEndpoint = BaseApiV1 ("auth" :> "register" :> ReqBody '[JSON] RegisterRequest :> Post '[JSON] ())
 
-data RegisterDTO = RegisterDTO
-  { login :: String
-  , password :: String
+data RegisterRequest = RegisterDTO
+  { username :: Text
+  , password :: Text
   }
   deriving (Show, Eq, Generic)
 
-instance FromJSON RegisterDTO
+instance FromJSON RegisterRequest
 
-registerUser :: RegisterDTO -> ApiM String
-registerUser _ = return "why are you running???" -- TODO: implement proper registration
+registerUser :: RegisterRequest -> ApiM ()
+registerUser (RegisterDTO l p) = do
+  ApiEnv dao _ <- ask
+  let userToInsert = UserToInsert l p
+  newUser <- liftIO $ runExceptT (insertNewUser userToInsert dao)
+  case newUser of
+    Left _ -> throwError err500
+    Right _ -> return ()
 
 --------------------------------------------------------------------------------
 --                               Users
 --------------------------------------------------------------------------------
 
-type UsersEndpoint = BaseAuthenticatedApiV1 ("users" :> Get '[JSON] [UserDTO])
-
-data UserDTO = UserDTO
+data UserResponse = UserDTO
   { userId :: Int
-  , login :: String
+  , username :: Text
   }
   deriving (Show, Eq, Generic)
 
-instance Into User UserDTO where
-  into (User userId login _) = UserDTO (unID userId) login
+instance Into User UserResponse where
+  into (User userId username _) = UserDTO (unID userId) username
 
-instance ToJSON UserDTO
+instance ToJSON UserResponse
 
-users :: User -> ApiM [UserDTO]
-users _ = do
+type GetUsersEndpoint = BaseAuthenticatedApiV1 ("users" :> Get '[JSON] [UserResponse])
+
+getUsers :: User -> ApiM [UserResponse]
+getUsers _ = do
   ApiEnv dao _ <- ask
-  users <- liftIO $ getAllUsers dao
-  return $ map (into :: User -> UserDTO) users
+  users <- liftIO $ runExceptT (getAllUsers dao)
+  case users of
+    Left _ -> throwError err500
+    Right users -> return $ map (into :: User -> UserResponse) users
 
 --------------------------------------------------------------------------------
 --                                Phrases
@@ -126,42 +142,28 @@ users _ = do
 --  - Approved/not approved
 --  - Authored by me (maybe should make it generic to specify any author)
 
-type PhrasesEndpoint = BaseAuthenticatedApiV1 ("phrases" :> QueryParam "filter" String :> Get '[JSON] [PhraseDTO])
-
-data PhraseDTO = PhraseDTO
-  { id :: Int
-  , text :: String
-  , errors :: [ErrorDTO]
-  , groupId :: GroupDTO
-  , authorId :: AuthorDTO
-  }
-  deriving (Show, Eq, Generic)
-
-data ErrorDTO = ErrorDTO
-  { word :: String
-  , corrected :: String
-  }
-  deriving (Show, Eq, Generic)
-
-data GroupDTO = GroupDTO
-  { id :: Int
-  , groupName :: String
-  , groupOwner :: AuthorDTO
-  }
-  deriving (Show, Eq, Generic)
-
-data AuthorDTO = AuthorDTO
-  { id :: Int
-  , login :: String
-  }
-  deriving (Show, Eq, Generic)
-
 -- POST /api/v1/phrase
--- TODO: submit new phrase for approval
--- Body:
---  - phrase
---  - groupId
---  - shouldSpellcheck: Boolean
+
+type PostPhraseEndpoint = BaseAuthenticatedApiV1 ("phrase" :> ReqBody '[JSON] PhraseRequest :> Post '[JSON] ())
+
+data PhraseRequest = PhraseDTO
+  { text :: Text
+  , groupId :: Int
+  , shouldSpellcheck :: Bool
+  }
+  deriving (Show, Eq, Generic)
+
+instance FromJSON PhraseRequest
+
+postPhrase :: User -> PhraseRequest -> ApiM ()
+postPhrase (User (ID uId) _ _) (PhraseDTO t gId _) = do
+  ApiEnv dao _ <- ask
+  -- TODO: spellcheck
+  let phrase = PhraseToInsert t [] gId uId
+  newPhrase <- liftIO $ runExceptT (insertPhrase phrase dao)
+  case newPhrase of
+    Left _ -> throwError err500
+    Right _ -> return ()
 
 -- POST /api/v1/phrase/:id/approve
 -- TODO: approves given phrase, several phrases may be approved in a single
@@ -183,22 +185,20 @@ data AuthorDTO = AuthorDTO
 
 type AppAPI =
   RegisterEndpoint
-    :<|> UsersEndpoint
-
--- :<|> Phrases
--- :<|> PhraseGroups
+    :<|> GetUsersEndpoint
+    :<|> PostPhraseEndpoint
 
 appLogicT :: ServerT AppAPI ApiM
-appLogicT = registerUser :<|> users
+appLogicT = registerUser :<|> getUsers :<|> postPhrase
 
 readerToHandler :: ApiEnv -> ApiM a -> Handler a
 readerToHandler env r = runReaderT r env
 
-appLogic :: ApiEnv -> (RegisterDTO -> Handler [Char]) :<|> (User -> Handler [UserDTO])
+appLogic :: ApiEnv -> (RegisterRequest -> Handler ()) :<|> ((User -> Handler [UserResponse]) :<|> (User -> PhraseRequest -> Handler ()))
 appLogic env = hoistServerWithContext (Proxy @AppAPI) (Proxy @'[BasicAuthCheck User]) (readerToHandler env) appLogicT
 
 appServer :: ApiEnv -> Application
-appServer env = serveWithContext (Proxy @AppAPI) basicAuthServerContext (appLogic env)
+appServer env = serveWithContext (Proxy @AppAPI) (basicAuthServerContext env) (appLogic env)
 
 --------------------------------------------------------------------------------
 --                                Server

@@ -1,4 +1,6 @@
-module Config where
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
+module Config (Config(..), ServerConfig(..), PgConfig(..)) where
 
 data Config = Config
   { serverConfig :: ServerConfig

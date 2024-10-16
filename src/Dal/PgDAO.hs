@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# HLINT ignore "Use <&>" #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
@@ -7,16 +9,15 @@
 module Dal.PgDAO where
 
 import Config (PgConfig, pgDbname, pgHost, pgPassword, pgPort, pgUser)
-import Dal.DAO ( DAO(..) )
+import Dal.DAO
 import qualified Dal.Model as PgModel
 import qualified Dal.Queries as Queries
 import qualified Data.ByteString.Char8 as BS
 import qualified Hasql.Connection as C
 import qualified Hasql.Session as S
-import Hasql.Statement (Statement)
+import Hasql.Statement (Statement (..))
 import qualified Model
-import Utils.Into ( Into(..) )
-
+import Utils.Into
 
 instance Into (PgModel.ID a) (Model.ID b) where
   into (PgModel.ID i) = Model.ID i
@@ -31,8 +32,9 @@ instance Into PgModel.Phrase Model.Phrase where
   into (PgModel.Phrase phraseId text errors groupId authorId) =
     Model.Phrase (into phraseId) text (map into errors) (into groupId) (into authorId)
 
-runSingleQuery :: Config.PgConfig -> Statement a b -> a -> IO b
-runSingleQuery settings query arguments = C.acquire connectionString >>= connect >>= runQuery
+-- NOTE: should add retries on connection errors
+pgConnect :: Config.PgConfig -> DatabaseResult C.Connection
+pgConnect settings = ExceptT $ fmap (toError "Connection error: " ConnectionError) (C.acquire connectionString)
  where
   connectionString =
     BS.pack $
@@ -45,18 +47,19 @@ runSingleQuery settings query arguments = C.acquire connectionString >>= connect
           , ("password", pgPassword)
           , ("dbname", pgDbname)
           ]
-  connect connResult = case connResult of
-    Left err -> fail $ "Connection error: " ++ show err
-    Right conn -> return conn
-  runQuery conn =
-    S.run (S.statement arguments query) conn >>= \queryResult ->
-      C.release conn >> case queryResult of
-        Left err -> fail $ "Query error: " ++ show err
-        Right results -> return results
 
-query :: (Into a1 b) => Statement a2 [a1] -> a2 -> Config.PgConfig -> IO [b]
-query q args settings = runSingleQuery settings q args >>= return . map into
+query :: (Into b c) => Statement a b -> a -> DatabaseResult C.Connection -> DatabaseResult c
+query queryStatement args connRes = fmap into runSingleQuery
+ where
+  runSingleQuery =
+    connRes >>= \conn ->
+      ExceptT $
+        fmap
+          (toError "Query error" QueryError)
+          (S.run (S.statement args queryStatement) conn)
 
-instance DAO Config.PgConfig where
+instance DAO (DatabaseResult C.Connection) where
   getAllUsers = query Queries.selectUsers ()
-  getAllPhrases = query Queries.selectPhrases ()
+  insertNewUser = query Queries.insertUser
+  findUserByUsername =  query Queries.findUserByUsername
+  insertPhrase = query Queries.insertPhrase

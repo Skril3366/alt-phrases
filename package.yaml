@@ -20,7 +20,7 @@ description: Please see the README on GitHub at <https://github.com/githubuser/t
 
 dependencies:
   - rerebase
-  - text ^>= 2.0.2
+  # - text ^>= 2.0.2
   - ghc-prim == 0.10.0
   - servant-server
   - aeson
